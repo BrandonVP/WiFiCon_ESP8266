@@ -4,153 +4,251 @@
  Author:	Brandon Van Pelt
 */
 
-// This device MAC: 0xFC, 0xF5, 0xC4, 0xA9, 0x5D, 0xE8
-
+#include <Wire.h>
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <espnow.h>
 #include <SoftwareSerial.h>
+#include "can_buffer.h"
 
-#define INTERRUPT_PIN 0
-#define E_STOP_MESSAGE_INTERVAL 200
-//#define DEBUG
+// Estop
+#define INTERRUPT_PIN           (5)
+#define E_STOP_MESSAGE_INTERVAL (200)
+
+// Packet RX States
+#define START_BYTE              (0)
+#define PACKET_LENGTH           (1)
+#define CAN_BUS_ID              (2)
+#define CAN_BUS_DATA            (3)
+#define END_BYTE                (4)
+
+// Packet RX Settings
+#define STARTING_BYTE           (0xFE)
+#define ENDING_BYTE             (0xFD)
+#define PACKET_SIZE             (0x09)
 
 // Setup softserial pins
-SoftwareSerial controller(4, 5); // RX, TX
+SoftwareSerial controller(12, 14); // RX, TX
 
 // REPLACE WITH THE MAC Address of your receiver 
 uint8_t broadcastAddress[] = { 0x24, 0x6F, 0x28, 0x9D, 0xA7, 0x8C };
 
-//Structure example to send data
-//Must match the receiver structure
-typedef struct struct_message {
-    uint16_t ID;
-    uint8_t MSG[8];
-} struct_message;
+// Declare buffer
+can_buffer myStack;
 
-// Create a struct_message to forward TX messages
-struct_message CANFrame;
-struct_message serialCANFrame;
-struct_message eStopArm1;
-struct_message eStopArm2;
+// Strutures to hold CAN Bus messages
+CAN_Message serial_To_WiFi;
+CAN_Message serialCANFrame;
+CAN_Message serial_CAN_TX;
+CAN_Message eStopArm1;
+CAN_Message eStopArm2;
 
-bool toggle_e_stop = false;
+// E-stop variables
+volatile bool toggle_e_stop = false;
 bool eStopActivated = false;
 bool controllerNotified = false;
-
 uint32_t eStopTimer = 0;
-uint32_t eStopTimer2 = 0;
 
 // Callback when data is sent
 void OnDataSent(uint8_t* mac_addr, uint8_t sendStatus)
 {
+#if defined DEBUG
     Serial.println("OnDataSent()");
-    Serial.print("Last Packet Send Status: ");
+#endif
+    
+    //Serial.print("Last Packet Send Status: ");
     if (sendStatus == 0) {
-        Serial.println("Delivery success");
+        //Serial.println("Delivery success");
     }
-    else {
-        Serial.println("Delivery fail");
-        esp_now_send(broadcastAddress, (uint8_t*)&CANFrame, sizeof(CANFrame));
+    else 
+    {
+        //Serial.println("Delivery fail");
     }
 }
 
-// Callback to forward data via serialsoftware
+#define DEBUG_OnDataRecv
+#if defined DEBUG_OnDataRecv
+volatile uint16_t test_id = 0;
+volatile uint8_t test_data[8];
+#endif
+// Callback for data reccieved from WiFi
 void OnDataRecv(uint8_t* mac, uint8_t* incomingData, uint8_t len)
 {
-#if defined DEBUG
-    //Serial.println("OnDataRecv()");
-#endif
-
     memcpy(&serialCANFrame, incomingData, sizeof(serialCANFrame));
 
-#if defined DEBUG
-    //Serial.println("Received MSG");
+#if defined DEBUG_OnDataRecv
+    Serial.println("");
+    Serial.println("");
+    Serial.println("**************OnDataRecv()**************");
+    Serial.print("ID: ");
+    test_id = serialCANFrame.id;
+    Serial.println(test_id, 16);
 #endif
 
-    controller.write(0xFF);
-    controller.write(serialCANFrame.ID);
-    controller.write(serialCANFrame.MSG[0]);
-    controller.write(serialCANFrame.MSG[1]);
-    controller.write(serialCANFrame.MSG[2]);
-    controller.write(serialCANFrame.MSG[3]);
-    controller.write(serialCANFrame.MSG[4]);
-    controller.write(serialCANFrame.MSG[5]);
-    controller.write(serialCANFrame.MSG[6]);
-    controller.write(serialCANFrame.MSG[7]);
+    // Push data into stack
+    myStack.push(serialCANFrame);
 }
 
-void WiFi_CANBus()
+/*
+*                           Serial Transfer packet
+ 0xFe   0x09   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0xFD
+|    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |____|____Ending byte (constant)
+|    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |____|___________data[7]
+|    | |    | |    | |    | |    | |    | |    | |    | |    | |____|__________________data[6]
+|    | |    | |    | |    | |    | |    | |    | |    | |____|_________________________data[5]
+|    | |    | |    | |    | |    | |    | |    | |____|________________________________data[4]
+|    | |    | |    | |    | |    | |    | |____|_______________________________________data[3]
+|    | |    | |    | |    | |    | |____|______________________________________________data[2]
+|    | |    | |    | |    | |____|_____________________________________________________data[1]
+|    | |    | |    | |____|____________________________________________________________data[0]
+|    | |    | |____|___________________________________________________________________CAN Bus ID
+|    | |____|__________________________________________________________________________# of payload bytes
+|____|_________________________________________________________________________________Start byte (constant)
+*/
+#define DEBUG_controllerToESPWiFi
+// Decode serial packets and send out via WiFi
+bool controllerToESPWiFi()
 {
+    static uint8_t state = 0;
+    static uint8_t packetIndex = 0;
+
     if (eStopActivated == true)
     {
-        return;
+#if defined DEBUG_controllerToESPWiFi
+        Serial.println(" espot WiFi_CANBus()");
+#endif
+        return false;
     }
 
-#if defined DEBUG
-    Serial.println(mySerial.available());
+    if (controller.available() > 0)
+    {
+        uint8_t recByte = controller.read();
+        switch (state)
+        {
+        case START_BYTE:
+#if defined DEBUG_controllerToESPWiFi
+            Serial.print("STARTING_BYTE: ");
+            Serial.println(recByte, 16);
+#endif
+            if (recByte == STARTING_BYTE)
+            {
+                state = PACKET_LENGTH;
+                return false;
+            }
+            break;
+        case PACKET_LENGTH:
+#if defined DEBUG_controllerToESPWiFi
+            Serial.print("PACKET_LENGTH: ");
+            Serial.println(recByte, 16);
+#endif
+            if (recByte == PACKET_SIZE)
+            {
+                packetIndex = 0;
+                state = CAN_BUS_ID;
+                return false;
+            }
+            else
+            {
+                // Bad packet
+                state = START_BYTE;
+            }
+            break;
+        case CAN_BUS_ID:
+#if defined DEBUG_controllerToESPWiFi
+            Serial.print("CAN_BUS_ID: ");
+            Serial.println(recByte, 16);
+#endif
+            serial_To_WiFi.id = recByte;
+            state = CAN_BUS_DATA;
+            break;
+        case CAN_BUS_DATA:
+#if defined DEBUG_controllerToESPWiFi
+            Serial.print("CAN_BUS_DATA: ");
+            Serial.println(recByte, 16);
+#endif
+            serial_To_WiFi.data[packetIndex] = recByte;
+            packetIndex++;
+            if (packetIndex == PACKET_SIZE - 1)
+            {
+                state = END_BYTE;
+            }
+            break;
+        case END_BYTE:
+#if defined DEBUG_controllerToESPWiFi
+            Serial.print("END_BYTE: ");
+            Serial.println(recByte, 16);
+#endif
+            if (recByte == ENDING_BYTE)
+            {
+                state = START_BYTE;
+                esp_now_send(broadcastAddress, (uint8_t*)&serial_To_WiFi, sizeof(serial_To_WiFi));
+#if defined DEBUG_controllerToESPWiFi
+                Serial.println("SENT");
+#endif
+                return true;
+            }
+            else
+            {
+                // packet failed restart
+                state = START_BYTE;
+            }
+            break;
+        }
+    }
+    return false;
+}
+
+#define DEBUG_ESPWiFiTocontroller
+// Send serial packet to controller via Serial
+bool ESPWiFiTocontroller()
+{
+    if (myStack.stack_size() > 0)
+    {
+        myStack.pop(&serial_CAN_TX);
+
+#if defined DEBUG_controllerToESPWiFi
+        Serial.print("ESPWiFiTocontroller ID: ");
+        Serial.println(serial_CAN_TX.id, 16);
+        Serial.print("ESPWiFiTocontroller Data[3]: ");
+        Serial.println(serial_CAN_TX.data[3]);
 #endif
 
-    if (controller.available() > 9)
-    {
-        uint8_t test = controller.read();
-        /*
-            Messages start on an extra 0xFF byte. If misaligned, this read statement will eat bytes until re-aligned resulting in 1 lost message.
-            A misalignment occurance happens near startup when one MCU is ready and sending before the other is fully started. 
-            The message lost in a startup will most certianly be a non-essential axis position message.
-
-            An axis message can have values of 0xFF when an angle is past 255 degrees. However, the default startup angles are 90 and 180 degrees.
-            If the controller was turned on while the system was already running and an axis is past 255 degrees this may not aligned the bytes correctly.
-
-            TODO: Find a fix
-        */
-        if (test == 0xFF)
-        {
-            CANFrame.ID = controller.read();
-            CANFrame.MSG[0] = controller.read();
-            CANFrame.MSG[1] = controller.read();
-            CANFrame.MSG[2] = controller.read();
-            CANFrame.MSG[3] = controller.read();
-            CANFrame.MSG[4] = controller.read();
-            CANFrame.MSG[5] = controller.read();
-            CANFrame.MSG[6] = controller.read();
-            CANFrame.MSG[7] = controller.read();
-            esp_now_send(broadcastAddress, (uint8_t*)&CANFrame, sizeof(CANFrame));
-        }
+        controller.write(STARTING_BYTE);
+        controller.write(PACKET_SIZE);
+        controller.write(serial_CAN_TX.id);
+        controller.write(serial_CAN_TX.data[0]);
+        controller.write(serial_CAN_TX.data[1]);
+        controller.write(serial_CAN_TX.data[2]);
+        controller.write(serial_CAN_TX.data[3]);
+        controller.write(serial_CAN_TX.data[4]);
+        controller.write(serial_CAN_TX.data[5]);
+        controller.write(serial_CAN_TX.data[6]);
+        controller.write(serial_CAN_TX.data[7]);
+        controller.write(ENDING_BYTE);
     }
 }
 
 // ISR for E-Stop button
 ICACHE_RAM_ATTR void eStopButton()
 {
-    toggle_e_stop = true;
+    eStopActivated = true;
 }
 
-// eStopMonitor prevents multiple ISR calls for a single button press
-void eStopMonitor()
-{
-    if (toggle_e_stop == true && millis() - eStopTimer > 250)
-    {
-        Serial.println("e stop");
-        eStopActivated = !eStopActivated;
-        eStopTimer = millis();
-        toggle_e_stop = false;
-    }
-    else
-    {
-        toggle_e_stop = false;
-    }
-}
-
+// Send out eStop notifications
 void eStop()
 {
+    if (digitalRead(INTERRUPT_PIN) == HIGH)
+    {
+        eStopActivated = false;
+    }
+
     if (eStopActivated)
     {
-        if (millis() - eStopTimer2 > 500)
+        if (millis() - eStopTimer > E_STOP_MESSAGE_INTERVAL)
         {
             esp_now_send(broadcastAddress, (uint8_t*)&eStopArm1, sizeof(eStopArm1));
             esp_now_send(broadcastAddress, (uint8_t*)&eStopArm2, sizeof(eStopArm2));
-            eStopTimer2 = millis();
+            eStopTimer = millis();
         }
 
         if (controllerNotified = false)
@@ -172,35 +270,18 @@ void eStop()
             controllerNotified = true;
         }
     }
-    else if (!eStopActivated)
-    {
-        const uint16_t eStopDeactivatedCode = 0x100;
-        const uint8_t fillerBytes = 0xAA;
-
-        controller.write(0xFF);
-        controller.write(eStopDeactivatedCode);
-        controller.write(fillerBytes);
-        controller.write(fillerBytes);
-        controller.write(fillerBytes);
-        controller.write(fillerBytes);
-        controller.write(fillerBytes);
-        controller.write(fillerBytes);
-        controller.write(fillerBytes);
-        controller.write(fillerBytes);
-
-        controllerNotified = false;
-    }
 }
 
+// Setup device
 void setup()
 {
     // Init Serial Monitor
     Serial.begin(115200);
+    Serial.println("");
     Serial.println("Starting");
 
     // Start Softserial
     controller.begin(57600); // Tx ok, Rx ok
-
     // Set device as a Wi-Fi Station
     WiFi.mode(WIFI_STA);
 
@@ -217,8 +298,7 @@ void setup()
     // Set ESP-NOW Role
     esp_now_set_self_role(ESP_NOW_ROLE_COMBO);
 
-    // Once ESPNow is successfully Init, we will register for Send CB to
-    // get the status of Trasnmitted packet
+    // Register send call back 
     esp_now_register_send_cb(OnDataSent);
 
     // Register peer
@@ -229,32 +309,32 @@ void setup()
 
     // Setup E-Stop button interrupt
     pinMode(INTERRUPT_PIN, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), eStopButton, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), eStopButton, FALLING);
 
-    eStopArm1.ID = 0xA0;
-    eStopArm2.ID = 0xB0;
-    eStopArm1.MSG[0] = 0x00;
-    eStopArm2.MSG[0] = 0x00;
-    eStopArm1.MSG[1] = 0x04;
-    eStopArm2.MSG[1] = 0x04;
-    eStopArm1.MSG[2] = 0x02;
-    eStopArm2.MSG[2] = 0x02;
-    eStopArm1.MSG[3] = 0x00;
-    eStopArm2.MSG[3] = 0x00;
-    eStopArm1.MSG[4] = 0x00;
-    eStopArm2.MSG[4] = 0x00;
-    eStopArm1.MSG[5] = 0x00;
-    eStopArm2.MSG[5] = 0x00;
-    eStopArm1.MSG[6] = 0x00;
-    eStopArm2.MSG[6] = 0x00;
-    eStopArm1.MSG[7] = 0x00;
-    eStopArm2.MSG[7] = 0x00;
+    eStopArm1.id = 0xA0;
+    eStopArm2.id = 0xB0;
+    eStopArm1.data[0] = 0x00;
+    eStopArm2.data[0] = 0x00;
+    eStopArm1.data[1] = 0x04;
+    eStopArm2.data[1] = 0x04;
+    eStopArm1.data[2] = 0x02;
+    eStopArm2.data[2] = 0x02;
+    eStopArm1.data[3] = 0x00;
+    eStopArm2.data[3] = 0x00;
+    eStopArm1.data[4] = 0x00;
+    eStopArm2.data[4] = 0x00;
+    eStopArm1.data[5] = 0x00;
+    eStopArm2.data[5] = 0x00;
+    eStopArm1.data[6] = 0x00;
+    eStopArm2.data[6] = 0x00;
+    eStopArm1.data[7] = 0x00;
+    eStopArm2.data[7] = 0x00;
 }
 
-
+// Main loop
 void loop()
 {
-    WiFi_CANBus();
-    eStopMonitor();
+    controllerToESPWiFi();
+    ESPWiFiTocontroller();
     eStop();
 }

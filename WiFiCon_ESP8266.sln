@@ -7,9 +7,17 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WiFiCon_ESP8266", "WiFiCon_
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ESP8266WiFi-1.0", "WiFiCon_ESP8266\Libraries\ESP8266WiFi\1.0\ESP8266WiFi\ESP8266WiFi-1.0.vcxitems", "{CA659AEE-5683-4FAD-85F5-DBC729AFC57D}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SerialTransfer-3.1.2", "WiFiCon_ESP8266\Libraries\SerialTransfer\3.1.2\SerialTransfer\SerialTransfer-3.1.2.vcxitems", "{5DB60285-E139-49BB-AF95-B88AC178C053}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Wire-1.0", "WiFiCon_ESP8266\Libraries\Wire\1.0\Wire\Wire-1.0.vcxitems", "{4EABDE89-2158-4BAB-9BDB-AF9215928A92}"
+EndProject
 Global
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		WiFiCon_ESP8266\Libraries\Wire\1.0\Wire\Wire-1.0.vcxitems*{4eabde89-2158-4bab-9bdb-af9215928a92}*SharedItemsImports = 9
+		WiFiCon_ESP8266\Libraries\SerialTransfer\3.1.2\SerialTransfer\SerialTransfer-3.1.2.vcxitems*{5db60285-e139-49bb-af95-b88ac178c053}*SharedItemsImports = 9
 		WiFiCon_ESP8266\Libraries\ESP8266WiFi\1.0\ESP8266WiFi\ESP8266WiFi-1.0.vcxitems*{c5f80730-f44f-4478-bdae-6634efc2ca88}*SharedItemsImports = 4
+		WiFiCon_ESP8266\Libraries\SerialTransfer\3.1.2\SerialTransfer\SerialTransfer-3.1.2.vcxitems*{c5f80730-f44f-4478-bdae-6634efc2ca88}*SharedItemsImports = 4
+		WiFiCon_ESP8266\Libraries\Wire\1.0\Wire\Wire-1.0.vcxitems*{c5f80730-f44f-4478-bdae-6634efc2ca88}*SharedItemsImports = 4
 		WiFiCon_ESP8266\Libraries\ESP8266WiFi\1.0\ESP8266WiFi\ESP8266WiFi-1.0.vcxitems*{ca659aee-5683-4fad-85f5-dbc729afc57d}*SharedItemsImports = 9
 	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
