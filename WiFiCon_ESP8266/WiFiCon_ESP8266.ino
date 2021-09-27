@@ -27,6 +27,8 @@
 #define ENDING_BYTE             (0xFD)
 #define PACKET_SIZE             (0x09)
 
+#define ESP_NOW_SEND_SUCCESS    (0)
+
 // Setup softserial pins
 SoftwareSerial controller(12, 14); // RX, TX
 
@@ -49,24 +51,17 @@ bool eStopActivated = false;
 bool controllerNotified = false;
 uint32_t eStopTimer = 0;
 
+//#define DEBUG_OnDataSent
 // Callback when data is sent
-void OnDataSent(uint8_t* mac_addr, uint8_t sendStatus)
+void OnDataSent(uint8_t* mac_addr, uint8_t status)
 {
-#if defined DEBUG
-    Serial.println("OnDataSent()");
+#if defined DEBUG_OnDataSent
+    Serial.print("\r\nLast Packet Send Status:\t");
+    Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 #endif
-    
-    //Serial.print("Last Packet Send Status: ");
-    if (sendStatus == 0) {
-        //Serial.println("Delivery success");
-    }
-    else 
-    {
-        //Serial.println("Delivery fail");
-    }
 }
 
-#define DEBUG_OnDataRecv
+//#define DEBUG_OnDataRecv
 #if defined DEBUG_OnDataRecv
 volatile uint16_t test_id = 0;
 volatile uint8_t test_data[8];
@@ -105,7 +100,7 @@ void OnDataRecv(uint8_t* mac, uint8_t* incomingData, uint8_t len)
 |    | |____|__________________________________________________________________________# of payload bytes
 |____|_________________________________________________________________________________Start byte (constant)
 */
-#define DEBUG_controllerToESPWiFi
+//#define DEBUG_controllerToESPWiFi
 // Decode serial packets and send out via WiFi
 bool controllerToESPWiFi()
 {
@@ -198,7 +193,7 @@ bool controllerToESPWiFi()
     return false;
 }
 
-#define DEBUG_ESPWiFiTocontroller
+//#define DEBUG_ESPWiFiTocontroller
 // Send serial packet to controller via Serial
 bool ESPWiFiTocontroller()
 {
@@ -206,13 +201,7 @@ bool ESPWiFiTocontroller()
     {
         myStack.pop(&serial_CAN_TX);
 
-#if defined DEBUG_controllerToESPWiFi
-        Serial.print("ESPWiFiTocontroller ID: ");
-        Serial.println(serial_CAN_TX.id, 16);
-        Serial.print("ESPWiFiTocontroller Data[3]: ");
-        Serial.println(serial_CAN_TX.data[3]);
-#endif
-
+        // TODO: transfer is slow, write this as non-blocking state machine
         controller.write(STARTING_BYTE);
         controller.write(PACKET_SIZE);
         controller.write(serial_CAN_TX.id);
@@ -225,6 +214,27 @@ bool ESPWiFiTocontroller()
         controller.write(serial_CAN_TX.data[6]);
         controller.write(serial_CAN_TX.data[7]);
         controller.write(ENDING_BYTE);
+
+#if defined DEBUG_ESPWiFiTocontroller
+        Serial.print("ESPWiFiTocontroller ID: ");
+        Serial.print(serial_CAN_TX.id, 16);
+        Serial.print("  Data: ");
+        Serial.print(serial_CAN_TX.data[0]);
+        Serial.print(" ");
+        Serial.print(serial_CAN_TX.data[2]);
+        Serial.print(" ");
+        Serial.print(serial_CAN_TX.data[3]);
+        Serial.print(" ");
+        Serial.print(serial_CAN_TX.data[3]);
+        Serial.print(" ");
+        Serial.println(serial_CAN_TX.data[4]);
+        Serial.print(" ");
+        Serial.print(serial_CAN_TX.data[5]);
+        Serial.print(" ");
+        Serial.print(serial_CAN_TX.data[6]);
+        Serial.print(" ");
+        Serial.println(serial_CAN_TX.data[7]);
+#endif
     }
 }
 
@@ -250,7 +260,6 @@ void eStop()
             esp_now_send(broadcastAddress, (uint8_t*)&eStopArm2, sizeof(eStopArm2));
             eStopTimer = millis();
         }
-
         if (controllerNotified = false)
         {
             const uint16_t eStopActivatedCode = 0x101;
@@ -331,6 +340,7 @@ void setup()
     eStopArm2.data[7] = 0x00;
 }
 
+uint32_t timer22 = 0;
 // Main loop
 void loop()
 {
