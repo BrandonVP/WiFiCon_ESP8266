@@ -201,7 +201,6 @@ bool ESPWiFiTocontroller()
     {
         myStack.pop(&serial_CAN_TX);
 
-        // TODO: transfer is slow, write this as non-blocking state machine
         controller.write(STARTING_BYTE);
         controller.write(PACKET_SIZE);
         controller.write(serial_CAN_TX.id);
@@ -340,7 +339,6 @@ void setup()
     eStopArm2.data[7] = 0x00;
 }
 
-uint32_t timer22 = 0;
 // Main loop
 void loop()
 {
