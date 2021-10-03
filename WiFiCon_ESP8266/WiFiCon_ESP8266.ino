@@ -50,7 +50,8 @@ volatile bool toggle_e_stop = false;
 bool eStopActivated = false;
 bool controllerNotified = false;
 uint32_t eStopTimer = 0;
-
+volatile uint32_t ButtonPressTimer = 0;
+volatile uint8_t button_state = 0;
 //#define DEBUG_OnDataSent
 // Callback when data is sent
 void OnDataSent(uint8_t* mac_addr, uint8_t status)
@@ -100,7 +101,7 @@ void OnDataRecv(uint8_t* mac, uint8_t* incomingData, uint8_t len)
 |    | |____|__________________________________________________________________________# of payload bytes
 |____|_________________________________________________________________________________Start byte (constant)
 */
-//#define DEBUG_controllerToESPWiFi
+#define DEBUG_controllerToESPWiFi
 // Decode serial packets and send out via WiFi
 bool controllerToESPWiFi()
 {
@@ -110,7 +111,7 @@ bool controllerToESPWiFi()
     if (eStopActivated == true)
     {
 #if defined DEBUG_controllerToESPWiFi
-        Serial.println(" espot WiFi_CANBus()");
+        //Serial.println(" estop controllerToESPWiFi()");
 #endif
         return false;
     }
@@ -240,44 +241,79 @@ bool ESPWiFiTocontroller()
 // ISR for E-Stop button
 ICACHE_RAM_ATTR void eStopButton()
 {
-    eStopActivated = true;
+    //eStopActivated = true;
+    //button_state = 1;
+    //ButtonPressTimer = millis();
+}
+
+void controllerNotification(uint8_t id)
+{
+    const uint8_t fillerBytes = 0xAA;
+
+    controller.write(STARTING_BYTE);
+    controller.write(PACKET_SIZE);
+    controller.write(id);
+    controller.write(fillerBytes);
+    controller.write(fillerBytes);
+    controller.write(fillerBytes);
+    controller.write(fillerBytes);
+    controller.write(fillerBytes);
+    controller.write(fillerBytes);
+    controller.write(fillerBytes);
+    controller.write(fillerBytes);
+    controller.write(ENDING_BYTE);
 }
 
 // Send out eStop notifications
 void eStop()
 {
-    if (digitalRead(INTERRUPT_PIN) == HIGH)
+    // State
+    switch (button_state)
     {
-        eStopActivated = false;
-    }
+        case 0: // Nothing to do
+            if (digitalRead(INTERRUPT_PIN) == LOW)
+            {
+                button_state = 1;
+                ButtonPressTimer = millis();
+            }
+            break;
+        case 1: // button high
+            if (millis() - ButtonPressTimer > 200)
+            {
+                (digitalRead(INTERRUPT_PIN) == LOW) ? button_state = 3 : button_state = 0;
+            }
+            break;
+        case 2: // button low
+            if (millis() - ButtonPressTimer > 500)
+            {
+                (digitalRead(INTERRUPT_PIN) == HIGH) ? button_state = 4 : button_state = 3;
+            }
+            break;
+        case 3: // Butten press detected
+            if (millis() - eStopTimer > E_STOP_MESSAGE_INTERVAL)
+            {
+                esp_now_send(broadcastAddress, (uint8_t*)&eStopArm1, sizeof(eStopArm1));
+                esp_now_send(broadcastAddress, (uint8_t*)&eStopArm2, sizeof(eStopArm2));
+                eStopTimer = millis();
 
-    if (eStopActivated)
-    {
-        if (millis() - eStopTimer > E_STOP_MESSAGE_INTERVAL)
-        {
-            esp_now_send(broadcastAddress, (uint8_t*)&eStopArm1, sizeof(eStopArm1));
-            esp_now_send(broadcastAddress, (uint8_t*)&eStopArm2, sizeof(eStopArm2));
-            eStopTimer = millis();
-        }
-        if (controllerNotified = false)
-        {
-            const uint16_t eStopActivatedCode = 0x101;
-            const uint8_t fillerBytes = 0xAA;
+                const uint16_t eStopActivatedCode = 0xA1;
+                controllerNotification(eStopActivatedCode);
+                myStack.clear_buffer();
+            }
+            if (digitalRead(INTERRUPT_PIN) == HIGH)
+            {
+                button_state = 2;
+                ButtonPressTimer = millis();
+            }
+            break;
+        case 4:
+            eStopActivated = false;
+            button_state = 0;
+            const uint16_t eStopDeactivatedCode = 0xA0;
+            controllerNotification(eStopDeactivatedCode);
+            break;
 
-            controller.write(0xFF);
-            controller.write(eStopActivatedCode);
-            controller.write(fillerBytes);
-            controller.write(fillerBytes);
-            controller.write(fillerBytes);
-            controller.write(fillerBytes);
-            controller.write(fillerBytes);
-            controller.write(fillerBytes);
-            controller.write(fillerBytes);
-            controller.write(fillerBytes);
-
-            controllerNotified = true;
-        }
-    }
+    } 
 }
 
 // Setup device
@@ -339,10 +375,17 @@ void setup()
     eStopArm2.data[7] = 0x00;
 }
 
+uint32 timer432 = 0;
+uint8_t temp12 = 0;
 // Main loop
 void loop()
 {
     controllerToESPWiFi();
     ESPWiFiTocontroller();
     eStop();
+    if (temp12 != button_state)
+    {
+        Serial.println(button_state);
+        temp12 = button_state;
+    }
 }
