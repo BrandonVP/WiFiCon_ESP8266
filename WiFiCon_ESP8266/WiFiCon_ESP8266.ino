@@ -4,6 +4,12 @@
  Author:	Brandon Van Pelt
 */
 
+// ************DEBUG************
+//#define DEBUG_OnDataSent
+//#define DEBUG_OnDataRecv
+//#define DEBUG_controllerToESPWiFi
+//#define DEBUG_ESPWiFiTocontroller
+
 #include <Wire.h>
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -27,6 +33,7 @@
 #define ENDING_BYTE             (0xFD)
 #define PACKET_SIZE             (0x09)
 
+// For ESP_NOW library
 #define ESP_NOW_SEND_SUCCESS    (0)
 
 // Setup softserial pins
@@ -46,14 +53,15 @@ CAN_Message eStopArm1;
 CAN_Message eStopArm2;
 
 // E-stop variables
-volatile bool toggle_e_stop = false;
 bool eStopActivated = false;
-bool controllerNotified = false;
+// WiFi message sent interval
 uint32_t eStopTimer = 0;
+// Prevents multiple signals from single button press
 volatile uint32_t ButtonPressTimer = 0;
 volatile uint8_t button_state = 0;
-//#define DEBUG_OnDataSent
-// Callback when data is sent
+
+
+// Callback when data is sent over WiFi
 void OnDataSent(uint8_t* mac_addr, uint8_t status)
 {
 #if defined DEBUG_OnDataSent
@@ -62,11 +70,12 @@ void OnDataSent(uint8_t* mac_addr, uint8_t status)
 #endif
 }
 
-//#define DEBUG_OnDataRecv
+// Debug variables for OnDataRecv
 #if defined DEBUG_OnDataRecv
 volatile uint16_t test_id = 0;
 volatile uint8_t test_data[8];
 #endif
+
 // Callback for data reccieved from WiFi
 void OnDataRecv(uint8_t* mac, uint8_t* incomingData, uint8_t len)
 {
@@ -81,7 +90,6 @@ void OnDataRecv(uint8_t* mac, uint8_t* incomingData, uint8_t len)
     Serial.println(test_id, 16);
 #endif
 
-    // Push data into stack
     myStack.push(serialCANFrame);
 }
 
@@ -101,7 +109,7 @@ void OnDataRecv(uint8_t* mac, uint8_t* incomingData, uint8_t len)
 |    | |____|__________________________________________________________________________# of payload bytes
 |____|_________________________________________________________________________________Start byte (constant)
 */
-#define DEBUG_controllerToESPWiFi
+
 // Decode serial packets and send out via WiFi
 bool controllerToESPWiFi()
 {
@@ -111,7 +119,7 @@ bool controllerToESPWiFi()
     if (eStopActivated == true)
     {
 #if defined DEBUG_controllerToESPWiFi
-        //Serial.println(" estop controllerToESPWiFi()");
+        Serial.println(" estop controllerToESPWiFi()");
 #endif
         return false;
     }
@@ -194,7 +202,6 @@ bool controllerToESPWiFi()
     return false;
 }
 
-//#define DEBUG_ESPWiFiTocontroller
 // Send serial packet to controller via Serial
 bool ESPWiFiTocontroller()
 {
@@ -241,11 +248,14 @@ bool ESPWiFiTocontroller()
 // ISR for E-Stop button
 ICACHE_RAM_ATTR void eStopButton()
 {
-    //eStopActivated = true;
-    //button_state = 1;
-    //ButtonPressTimer = millis();
+    /*
+    eStopActivated = true;
+    button_state = 1;
+    ButtonPressTimer = millis();
+    */
 }
 
+// Notify controller of press / depress
 void controllerNotification(uint8_t id)
 {
     const uint8_t fillerBytes = 0xAA;
@@ -264,7 +274,7 @@ void controllerNotification(uint8_t id)
     controller.write(ENDING_BYTE);
 }
 
-// Send out eStop notifications
+// Manage estop button states
 void eStop()
 {
     // State
@@ -355,6 +365,7 @@ void setup()
     pinMode(INTERRUPT_PIN, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), eStopButton, FALLING);
 
+    // Setup estop WiFi message
     eStopArm1.id = 0xA0;
     eStopArm2.id = 0xB0;
     eStopArm1.data[0] = 0x00;
@@ -375,17 +386,10 @@ void setup()
     eStopArm2.data[7] = 0x00;
 }
 
-uint32 timer432 = 0;
-uint8_t temp12 = 0;
 // Main loop
 void loop()
 {
     controllerToESPWiFi();
     ESPWiFiTocontroller();
     eStop();
-    if (temp12 != button_state)
-    {
-        Serial.println(button_state);
-        temp12 = button_state;
-    }
 }
