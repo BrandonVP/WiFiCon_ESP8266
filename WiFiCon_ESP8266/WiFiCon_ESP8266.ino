@@ -5,10 +5,13 @@
 */
 
 // ************DEBUG************
-//#define DEBUG_OnDataSent
+#define DEBUG_OnDataSent
 //#define DEBUG_OnDataRecv
 //#define DEBUG_controllerToESPWiFi
 //#define DEBUG_ESPWiFiTocontroller
+
+// Estop button used for 6DOF wireless controller 
+//#define ESTOP_BUTTON 
 
 #include <Wire.h>
 #include <Arduino.h>
@@ -40,7 +43,7 @@
 SoftwareSerial controller(12, 14); // RX, TX
 
 // REPLACE WITH THE MAC Address of your receiver 
-uint8_t broadcastAddress[] = { 0x24, 0x6F, 0x28, 0x9D, 0xA7, 0x8C };
+uint8_t broadcastAddress[] = { 0x9C, 0x9C, 0x1F, 0xDD, 0x4B, 0xD0 };
 
 // Declare buffer
 can_buffer myStack;
@@ -51,6 +54,8 @@ CAN_Message serialCANFrame;
 CAN_Message serial_CAN_TX;
 CAN_Message eStopArm1;
 CAN_Message eStopArm2;
+CAN_Message eStopArmOff1;
+CAN_Message eStopArmOff2;
 
 // E-stop variables
 bool eStopActivated = false;
@@ -95,7 +100,7 @@ void OnDataRecv(uint8_t* mac, uint8_t* incomingData, uint8_t len)
 
 /*
 *                           Serial Transfer packet
- 0xFe   0x09   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0xFD
+ 0xFE   0x09   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0xFD
 |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |____|____Ending byte (constant)
 |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |____|___________data[7]
 |    | |    | |    | |    | |    | |    | |    | |    | |    | |____|__________________data[6]
@@ -280,26 +285,26 @@ void eStop()
     // State
     switch (button_state)
     {
-        case 0: // Nothing to do
+        case 0: // Default button monitoring state
             if (digitalRead(INTERRUPT_PIN) == LOW)
             {
                 button_state = 1;
                 ButtonPressTimer = millis();
             }
             break;
-        case 1: // button high
-            if (millis() - ButtonPressTimer > 200)
+        case 1: // Button high
+            if (millis() - ButtonPressTimer > 50)
             {
                 (digitalRead(INTERRUPT_PIN) == LOW) ? button_state = 3 : button_state = 0;
             }
             break;
-        case 2: // button low
-            if (millis() - ButtonPressTimer > 500)
+        case 2: // Button low
+            if (millis() - ButtonPressTimer > 50)
             {
                 (digitalRead(INTERRUPT_PIN) == HIGH) ? button_state = 4 : button_state = 3;
             }
             break;
-        case 3: // Butten press detected
+        case 3: // Button press detected
             if (millis() - eStopTimer > E_STOP_MESSAGE_INTERVAL)
             {
                 esp_now_send(broadcastAddress, (uint8_t*)&eStopArm1, sizeof(eStopArm1));
@@ -316,11 +321,13 @@ void eStop()
                 ButtonPressTimer = millis();
             }
             break;
-        case 4:
+        case 4: // Button depressed
             eStopActivated = false;
             button_state = 0;
             const uint16_t eStopDeactivatedCode = 0xA0;
             controllerNotification(eStopDeactivatedCode);
+            esp_now_send(broadcastAddress, (uint8_t*)&eStopArmOff1, sizeof(eStopArmOff1));
+            esp_now_send(broadcastAddress, (uint8_t*)&eStopArmOff2, sizeof(eStopArmOff2));
             break;
 
     } 
@@ -329,6 +336,9 @@ void eStop()
 // Setup device
 void setup()
 {
+    // Random Delivery Failures will happen without this line. I have no idea why but someone on a forum figured out this solution
+    WiFi.disconnect();
+
     // Init Serial Monitor
     Serial.begin(115200);
     Serial.println("");
@@ -336,6 +346,7 @@ void setup()
 
     // Start Softserial
     controller.begin(57600); // Tx ok, Rx ok
+
     // Set device as a Wi-Fi Station
     WiFi.mode(WIFI_STA);
 
@@ -363,9 +374,9 @@ void setup()
 
     // Setup E-Stop button interrupt
     pinMode(INTERRUPT_PIN, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), eStopButton, FALLING);
+    //attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), eStopButton, FALLING);
 
-    // Setup estop WiFi message
+    // Setup start estop WiFi message
     eStopArm1.id = 0xA0;
     eStopArm2.id = 0xB0;
     eStopArm1.data[0] = 0x00;
@@ -384,6 +395,26 @@ void setup()
     eStopArm2.data[6] = 0x00;
     eStopArm1.data[7] = 0x00;
     eStopArm2.data[7] = 0x00;
+
+    // Setup stop estop WiFi message
+    eStopArmOff1.id = 0xA0;
+    eStopArmOff2.id = 0xB0;
+    eStopArmOff1.data[0] = 0x00;
+    eStopArmOff2.data[0] = 0x00;
+    eStopArmOff1.data[1] = 0x04;
+    eStopArmOff2.data[1] = 0x04;
+    eStopArmOff1.data[2] = 0x01;
+    eStopArmOff2.data[2] = 0x01;
+    eStopArmOff1.data[3] = 0x00;
+    eStopArmOff2.data[3] = 0x00;
+    eStopArmOff1.data[4] = 0x00;
+    eStopArmOff2.data[4] = 0x00;
+    eStopArmOff1.data[5] = 0x00;
+    eStopArmOff2.data[5] = 0x00;
+    eStopArmOff1.data[6] = 0x00;
+    eStopArmOff2.data[6] = 0x00;
+    eStopArmOff1.data[7] = 0x00;
+    eStopArmOff2.data[7] = 0x00;
 }
 
 // Main loop
@@ -391,5 +422,7 @@ void loop()
 {
     controllerToESPWiFi();
     ESPWiFiTocontroller();
+#if defined ESTOP_BUTTON
     eStop();
+#endif
 }
