@@ -17,7 +17,7 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <espnow.h>
-#include <SoftwareSerial.h>
+//#include <SoftwareSerial.h>
 #include "can_buffer.h"
 
 // Estop
@@ -27,8 +27,8 @@
 // Packet RX States
 #define START_BYTE              (0)
 #define PACKET_LENGTH           (1)
-#define CAN_BUS_ID1              (2)
-#define CAN_BUS_ID2              (3)
+#define CAN_BUS_ID1             (2)
+#define CAN_BUS_ID2             (3)
 #define CAN_BUS_DATA            (4)
 #define END_BYTE                (5)
 
@@ -267,9 +267,7 @@ bool ESPWiFiTocontroller()
 ICACHE_RAM_ATTR void eStopButton()
 {
     /*
-    eStopActivated = true;
-    button_state = 1;
-    ButtonPressTimer = millis();
+   Used polling instead
     */
 }
 
@@ -429,7 +427,6 @@ void setup()
     eStopArmOff2.data[7] = 0x00;
 }
 
-uint8_t num = 0;
 // Main loop
 void loop()
 {
