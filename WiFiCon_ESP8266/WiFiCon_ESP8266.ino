@@ -17,7 +17,6 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <espnow.h>
-//#include <SoftwareSerial.h>
 #include "can_buffer.h"
 
 // Estop
@@ -39,9 +38,6 @@
 
 // For ESP_NOW library
 #define ESP_NOW_SEND_SUCCESS    (0)
-
-// Setup softserial pins
-//SoftwareSerial controller(12, 14); // RX, TX
 
 // REPLACE WITH THE MAC Address of your receiver 
 //uint8_t broadcastAddress[] = { 0x9C, 0x9C, 0x1F, 0xDD, 0x4B, 0xD0 }; // Auto Tap
@@ -354,10 +350,7 @@ void setup()
     WiFi.disconnect();
 
     // Init Serial Monitor
-    Serial.begin(57600);
-
-    // Start Softserial
-    //controller.begin(115200); // Tx ok, Rx ok
+    Serial.begin(115200);
 
     // Set device as a Wi-Fi Station
     WiFi.mode(WIFI_STA);
