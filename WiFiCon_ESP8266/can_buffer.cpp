@@ -14,6 +14,7 @@ bool can_buffer::push(struct CAN_Message addFrame)
 {
 	// Copy message
 	rxBuffer[bufferInPtr].id = addFrame.id;
+	rxBuffer[bufferInPtr].length = addFrame.length;
 	for(uint8_t i = 0; i < 8; i++)
 	{
 		rxBuffer[bufferInPtr].data[i] = addFrame.data[i];
@@ -45,6 +46,7 @@ void can_buffer::pop(struct CAN_Message *bufOut)
 {
 	// Copy message
 	bufOut->id = rxBuffer[bufferOutPtr].id;
+	bufOut->length = rxBuffer[bufferOutPtr].length;
 	for(uint8_t i = 0; i < 8; i++)
 	{
 		bufOut->data[i] = rxBuffer[bufferOutPtr].data[i];

@@ -11,7 +11,7 @@
 //#define DEBUG_ESPWiFiTocontroller
 
 // Estop button used for 6DOF wireless controller 
-#define ESTOP_BUTTON 
+//#define ESTOP_BUTTON 
 
 #include <Wire.h>
 #include <Arduino.h>
@@ -28,21 +28,42 @@
 #define PACKET_LENGTH           (1)
 #define CAN_BUS_ID1             (2)
 #define CAN_BUS_ID2             (3)
-#define CAN_BUS_DATA            (4)
-#define END_BYTE                (5)
+#define CAN_BUS_LENGTH          (4)
+#define CAN_BUS_DATA            (5)
+#define END_BYTE                (6)
 
 // Packet RX Settings
 #define STARTING_BYTE           (0xFE)
 #define ENDING_BYTE             (0xFD)
-#define PACKET_SIZE             (0x09)
+#define PACKET_SIZE             (0x0A)
 
 // For ESP_NOW library
 #define ESP_NOW_SEND_SUCCESS    (0)
 
+/*
+Dongle Beta Unit Mac Addresses
+1: C8:C9:A3:F9:FD:04
+2: C8:C9:A3:F9:C4:94
+3: C8:C9:A3:FA:BB:E8
+4: 8C:4B:14:9F:94:50
+5: C8:C9:A3:FA:BA:2C
+
+V1.2: C8:C9:A3:FB:20:20
+*/
+/*
+ESP8266 Mac Addresses
+1: 
+2: 
+3: 
+4: 
+5: E8:DB:84:9C:A1:11
+*/
+
 // REPLACE WITH THE MAC Address of your receiver 
 //uint8_t broadcastAddress[] = { 0x9C, 0x9C, 0x1F, 0xDD, 0x4B, 0xD0 }; // Auto Tap
 //uint8_t broadcastAddress[] = { 0x94, 0xB9, 0x7E, 0xD5, 0xF1, 0x94 }; // Module PCB
-uint8_t broadcastAddress[] = { 0xC8, 0xC9, 0xA3, 0xFB, 0x20, 0x20 }; // V1.2 C8:C9:A3:FB:20:20
+//uint8_t broadcastAddress[] = { 0xC8, 0xC9, 0xA3, 0xFB, 0x20, 0x20 }; // V1.2 C8:C9:A3:FB:20:20
+uint8_t broadcastAddress[] = { 0xC8, 0xC9, 0xA3, 0xFA, 0xBA, 0x2C }; // 5: C8:C9:A3:FA:BA:2C
 
 // Declare buffer
 can_buffer myStack;
@@ -89,11 +110,28 @@ void OnDataRecv(uint8_t* mac, uint8_t* incomingData, uint8_t len)
 
 #if defined DEBUG_OnDataRecv
     Serial.println("");
-    Serial.println("");
-    Serial.println("**************OnDataRecv()**************");
-    Serial.print("ID: ");
+    Serial.print("OnDataRecv() ID: ");
     test_id = serialCANFrame.id;
-    Serial.println(test_id, 16);
+    Serial.print(test_id, 16);
+    Serial.print("  length: ");
+    Serial.print(serial_CAN_TX.length, 16);
+    Serial.print("  Data: ");
+    Serial.print(" ");
+    Serial.print(serialCANFrame.data[0], 16);
+    Serial.print(" ");
+    Serial.print(serialCANFrame.data[1], 16);
+    Serial.print(" ");
+    Serial.print(serialCANFrame.data[2], 16);
+    Serial.print(" ");
+    Serial.print(serialCANFrame.data[3], 16);
+    Serial.print(" ");
+    Serial.print(serialCANFrame.data[4], 16);
+    Serial.print(" ");
+    Serial.print(serialCANFrame.data[5], 16);
+    Serial.print(" ");
+    Serial.print(serialCANFrame.data[6], 16);
+    Serial.print(" ");
+    Serial.println(serialCANFrame.data[7], 16);
 #endif
 
     myStack.push(serialCANFrame);
@@ -101,20 +139,21 @@ void OnDataRecv(uint8_t* mac, uint8_t* incomingData, uint8_t len)
 
 /*
 *                           Serial Transfer packet
- 0xFE   0x09   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0xFD
-|    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |____|____Ending byte (constant)
-|    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |____|___________data[7]
-|    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |____|__________________data[6]
-|    | |    | |    | |    | |    | |    | |    | |    | |    | |____|_________________________data[5]
-|    | |    | |    | |    | |    | |    | |    | |    | |____|________________________________data[4]
-|    | |    | |    | |    | |    | |    | |    | |____|_______________________________________data[3]
-|    | |    | |    | |    | |    | |    | |____|______________________________________________data[2]
-|    | |    | |    | |    | |    | |____|_____________________________________________________data[1]
-|    | |    | |    | |    | |____|____________________________________________________________data[0]
-|    | |    | |    | |____|___________________________________________________________________CAN Bus ID2
-|    | |    | |____|__________________________________________________________________________CAN Bus ID1
-|    | |____|_________________________________________________________________________________# of payload bytes
-|____|________________________________________________________________________________________Start byte (constant)
+ 0xFE   0x0A   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0x00   0xFD
+|    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |____|___Ending byte (constant)
+|    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |____|__________data[7]
+|    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |____|_________________data[6]
+|    | |    | |    | |    | |    | |    | |    | |    | |    | |    | |____|________________________data[5]
+|    | |    | |    | |    | |    | |    | |    | |    | |    | |____|_______________________________data[4]
+|    | |    | |    | |    | |    | |    | |    | |    | |____|______________________________________data[3]
+|    | |    | |    | |    | |    | |    | |    | |____|_____________________________________________data[2]
+|    | |    | |    | |    | |    | |    | |____|____________________________________________________data[1]
+|    | |    | |    | |    | |    | |____|___________________________________________________________data[0]
+|    | |    | |    | |    | |____|__________________________________________________________________length
+|    | |    | |    | |____|_________________________________________________________________________CAN Bus ID2
+|    | |    | |____|________________________________________________________________________________CAN Bus ID1
+|    | |____|_______________________________________________________________________________________# of payload bytes
+|____|______________________________________________________________________________________________Start byte (constant)
 */
 
 // Decode serial packets and send out via WiFi
@@ -178,6 +217,14 @@ bool controllerToESPWiFi()
             Serial.println(recByte, 16);
 #endif
             serial_To_WiFi.id += (recByte << 8);
+            state = CAN_BUS_LENGTH;
+            break;
+        case CAN_BUS_LENGTH:
+#if defined DEBUG_controllerToESPWiFi
+            Serial.print("CAN_BUS_LENGTH: ");
+            Serial.println(recByte, 16);
+#endif
+            serial_To_WiFi.length = recByte;
             state = CAN_BUS_DATA;
             break;
         case CAN_BUS_DATA:
@@ -187,7 +234,7 @@ bool controllerToESPWiFi()
 #endif
             serial_To_WiFi.data[packetIndex] = recByte;
             packetIndex++;
-            if (packetIndex == PACKET_SIZE - 1)
+            if (packetIndex == PACKET_SIZE - 2)
             {
                 state = END_BYTE;
             }
@@ -228,6 +275,7 @@ bool ESPWiFiTocontroller()
         Serial.write(PACKET_SIZE);
         Serial.write((serial_CAN_TX.id >> 0) & 0xFF);
         Serial.write((serial_CAN_TX.id >> 8) & 0xFF);
+        Serial.write(serial_CAN_TX.length);
         Serial.write(serial_CAN_TX.data[0]);
         Serial.write(serial_CAN_TX.data[1]);
         Serial.write(serial_CAN_TX.data[2]);
@@ -240,24 +288,27 @@ bool ESPWiFiTocontroller()
        
 
 #if defined DEBUG_ESPWiFiTocontroller
+        Serial.println("");
         Serial.print("ESPWiFiTocontroller ID: ");
         Serial.print(serial_CAN_TX.id, 16);
+        Serial.print("  length: ");
+        Serial.print(serial_CAN_TX.length, 16);
         Serial.print("  Data: ");
-        Serial.print(serial_CAN_TX.data[0]);
+        Serial.print(serial_CAN_TX.data[0], 16);
         Serial.print(" ");
-        Serial.print(serial_CAN_TX.data[2]);
+        Serial.print(serial_CAN_TX.data[1], 16);
         Serial.print(" ");
-        Serial.print(serial_CAN_TX.data[3]);
+        Serial.print(serial_CAN_TX.data[2], 16);
         Serial.print(" ");
-        Serial.print(serial_CAN_TX.data[3]);
+        Serial.print(serial_CAN_TX.data[3], 16);
         Serial.print(" ");
-        Serial.println(serial_CAN_TX.data[4]);
+        Serial.print(serial_CAN_TX.data[4], 16);
         Serial.print(" ");
-        Serial.print(serial_CAN_TX.data[5]);
+        Serial.print(serial_CAN_TX.data[5], 16);
         Serial.print(" ");
-        Serial.print(serial_CAN_TX.data[6]);
+        Serial.print(serial_CAN_TX.data[6], 16);
         Serial.print(" ");
-        Serial.println(serial_CAN_TX.data[7]);
+        Serial.println(serial_CAN_TX.data[7], 16);
 #endif
     }
 }
@@ -278,6 +329,7 @@ void controllerNotification(uint8_t id)
     Serial.write(PACKET_SIZE);
     Serial.write((id >> 0) & 0xFF);
     Serial.write((id >> 8) & 0xFF);
+    Serial.write(8);
     Serial.write(fillerBytes);
     Serial.write(fillerBytes);
     Serial.write(fillerBytes);
@@ -357,8 +409,12 @@ void setup()
 
     // Mask MAC address
     //uint8_t mac[] = { 0xD8, 0xF1, 0x5B, 0x15, 0x8E, 0x9A };
-    uint8_t mac[] = { 0x9C, 0x9C, 0x1F, 0xDD, 0x4B, 0xD0 }; // 
-    wifi_set_macaddr(STATION_IF, &mac[0]);
+    //uint8_t mac[] = { 0x9C, 0x9C, 0x1F, 0xDD, 0x4B, 0xD0 }; // 
+    //wifi_set_macaddr(STATION_IF, &mac[0]);
+
+    // IF you need the MAC Address
+    Serial.print(F("Mac Address: "));
+    Serial.print(WiFi.macAddress());
 
     // Init ESP-NOW
     if (esp_now_init() != 0) {
@@ -385,6 +441,8 @@ void setup()
     // Setup start estop WiFi message
     eStopArm1.id = 0xA0;
     eStopArm2.id = 0xB0;
+    eStopArm1.length = 0x08;
+    eStopArm2.length = 0x08;
     eStopArm1.data[0] = 0x00;
     eStopArm2.data[0] = 0x00;
     eStopArm1.data[1] = 0x04;
@@ -405,6 +463,8 @@ void setup()
     // Setup stop estop WiFi message
     eStopArmOff1.id = 0xA0;
     eStopArmOff2.id = 0xB0;
+    eStopArmOff1.length = 0x08;
+    eStopArmOff2.length = 0x08;
     eStopArmOff1.data[0] = 0x00;
     eStopArmOff2.data[0] = 0x00;
     eStopArmOff1.data[1] = 0x04;
@@ -426,6 +486,25 @@ void setup()
 // Main loop
 void loop()
 {
+    /*
+    static uint32_t sendTimer = 0;
+    if (millis() - sendTimer > 1000)
+    {
+        CAN_Message test;
+        test.id = 0xAB;
+        test.length = 6;
+        for (int i = 0; i < 8; i++)
+        {
+            test.data[i] = i + 10;
+        }
+        esp_now_send(broadcastAddress, (uint8_t*)&test, sizeof(test));
+        //Serial.println("sent");
+        sendTimer = millis();
+    }
+    */
+
+    
+
     controllerToESPWiFi();
     ESPWiFiTocontroller();
 #if defined ESTOP_BUTTON

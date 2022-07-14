@@ -23,6 +23,7 @@
 struct CAN_Message
 {
 	 volatile uint16_t id;
+	 volatile uint8_t length;
 	 volatile uint8_t data[8];
 };
 
