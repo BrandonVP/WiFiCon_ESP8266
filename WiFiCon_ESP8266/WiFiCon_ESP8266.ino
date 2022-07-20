@@ -13,11 +13,13 @@
 // Estop button used for 6DOF wireless controller 
 //#define ESTOP_BUTTON 
 
+#include <EEPROM.h>
 #include <Wire.h>
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <espnow.h>
 #include "can_buffer.h"
+
 
 // Estop
 #define INTERRUPT_PIN           (5)
@@ -31,11 +33,20 @@
 #define CAN_BUS_LENGTH          (4)
 #define CAN_BUS_DATA            (5)
 #define END_BYTE                (6)
+#define MAC_ADDRESS             (7)
+#define CONNECT_DONGLE          (8)
+#define ESP_RESET               (9)
 
 // Packet RX Settings
 #define STARTING_BYTE           (0xFE)
 #define ENDING_BYTE             (0xFD)
 #define PACKET_SIZE             (0x0A)
+#define SEND_MAC                (0xAC)
+#define SEND_MAC_CONFIRM        (0xAD)
+#define CONNECT_NEW_DONGLE      (0xCA)
+#define CONNECT_DONGLE_CONFIRM  (0xCC)
+#define RESET_DEVICE            (0xBA)
+#define RESET_DEVICE_CONFIRM    (0xBF)
 
 // For ESP_NOW library
 #define ESP_NOW_SEND_SUCCESS    (0)
@@ -55,7 +66,7 @@ ESP8266 Mac Addresses
 1: 
 2: 
 3: 
-4: 
+4: D8:F1:5B:15:8E:9A
 5: E8:DB:84:9C:A1:11
 */
 
@@ -63,7 +74,9 @@ ESP8266 Mac Addresses
 //uint8_t broadcastAddress[] = { 0x9C, 0x9C, 0x1F, 0xDD, 0x4B, 0xD0 }; // Auto Tap
 //uint8_t broadcastAddress[] = { 0x94, 0xB9, 0x7E, 0xD5, 0xF1, 0x94 }; // Module PCB
 //uint8_t broadcastAddress[] = { 0xC8, 0xC9, 0xA3, 0xFB, 0x20, 0x20 }; // V1.2 C8:C9:A3:FB:20:20
-uint8_t broadcastAddress[] = { 0xC8, 0xC9, 0xA3, 0xFA, 0xBA, 0x2C }; // 5: C8:C9:A3:FA:BA:2C
+
+//uint8_t broadcastAddress[] = { 0xC8, 0xC9, 0xA3, 0xFA, 0xBA, 0x2C }; // 5: C8:C9:A3:FA:BA:2C
+uint8_t broadcastAddress[6];
 
 // Declare buffer
 can_buffer myStack;
@@ -180,9 +193,24 @@ bool controllerToESPWiFi()
             Serial.print("STARTING_BYTE: ");
             Serial.println(recByte, 16);
 #endif
-            if (recByte == STARTING_BYTE)
+            if (recByte == STARTING_BYTE) // CAN Bus packet
             {
                 state = PACKET_LENGTH;
+                return false;
+            }
+            if (recByte == SEND_MAC)
+            {
+                state = MAC_ADDRESS;
+                return false;
+            }
+            if (recByte == CONNECT_NEW_DONGLE)
+            {
+                state = CONNECT_DONGLE;
+                return false;
+            }
+            if (recByte == RESET_DEVICE)
+            {
+                state = ESP_RESET;
                 return false;
             }
             break;
@@ -257,6 +285,60 @@ bool controllerToESPWiFi()
             {
                 // packet failed restart
                 state = START_BYTE;
+            }
+            break;
+        case MAC_ADDRESS:
+            if (recByte == SEND_MAC_CONFIRM)
+            {
+                uint8_t mac[6];
+                wifi_get_macaddr(STATION_IF, mac);
+                Serial.write('E');
+                Serial.write('S');
+                Serial.write('P');
+                Serial.write(82);
+                Serial.write(66);
+                Serial.write(mac[0]);
+                Serial.write(mac[1]);
+                Serial.write(mac[2]);
+                Serial.write(mac[3]);
+                Serial.write(mac[4]);
+                Serial.write(mac[5]);
+                Serial.write(broadcastAddress[0]);
+                Serial.write(broadcastAddress[1]);
+                Serial.write(broadcastAddress[2]);
+                Serial.write(broadcastAddress[3]);
+                Serial.write(broadcastAddress[4]);
+                Serial.write(broadcastAddress[5]);
+                Serial.write(ENDING_BYTE);
+            }
+            state = START_BYTE;
+            break;
+        case CONNECT_DONGLE:
+            if (recByte == CONNECT_DONGLE_CONFIRM)
+            {
+                delay(1);
+                uint8_t temp = Serial.read();
+                EEPROM.put(0, temp);
+                temp = Serial.read();
+                EEPROM.put(1, temp);
+                temp = Serial.read();
+                EEPROM.put(2, temp);
+                temp = Serial.read();
+                EEPROM.put(3, temp);
+                temp = Serial.read();
+                EEPROM.put(4, temp);
+                temp = Serial.read();
+                EEPROM.put(5, temp);
+                EEPROM.commit();
+                state = START_BYTE;
+            }
+            break;
+        case ESP_RESET:
+            if (recByte == RESET_DEVICE_CONFIRM)
+            {
+                Serial.write(0xFF);
+                delay(1);
+                ESP.restart();
             }
             break;
         }
@@ -398,11 +480,48 @@ void eStop()
 // Setup device
 void setup()
 {
+    EEPROM.begin(512);  //Initialize EEPROM
+    if (EEPROM.read(6) == 0)
+    {
+        EEPROM.put(0, 0xC8);
+        EEPROM.put(1, 0xC9);
+        EEPROM.put(2, 0xA3);
+        EEPROM.put(3, 0xFA);
+        EEPROM.put(4, 0xBA);
+        EEPROM.put(5, 0x2C);
+        EEPROM.put(6, 0x01);
+        EEPROM.commit();
+    }
+    //EEPROM.put(6, 0x00);
+    //EEPROM.commit();
+
+    EEPROM.get(0, broadcastAddress[0]);
+    EEPROM.get(1, broadcastAddress[1]);
+    EEPROM.get(2, broadcastAddress[2]);
+    EEPROM.get(3, broadcastAddress[3]);
+    EEPROM.get(4, broadcastAddress[4]);
+    EEPROM.get(5, broadcastAddress[5]);
+
     // Random Delivery Failures will happen without this line. I have no idea why but someone on a forum figured out this solution
     WiFi.disconnect();
 
     // Init Serial Monitor
     Serial.begin(115200);
+
+    /*
+    Serial.print("EEPROM MAC: ");
+    Serial.print(broadcastAddress[0], 16);
+    Serial.print(":");
+    Serial.print(broadcastAddress[1], 16);
+    Serial.print(":");
+    Serial.print(broadcastAddress[2], 16);
+    Serial.print(":");
+    Serial.print(broadcastAddress[3], 16);
+    Serial.print(":");
+    Serial.print(broadcastAddress[4], 16);
+    Serial.print(":");
+    Serial.println(broadcastAddress[5], 16);
+    */
 
     // Set device as a Wi-Fi Station
     WiFi.mode(WIFI_STA);
@@ -413,12 +532,12 @@ void setup()
     //wifi_set_macaddr(STATION_IF, &mac[0]);
 
     // IF you need the MAC Address
-    Serial.print(F("Mac Address: "));
-    Serial.print(WiFi.macAddress());
+    //Serial.print(F("Mac Address: "));
+    //Serial.print(WiFi.macAddress());
 
     // Init ESP-NOW
     if (esp_now_init() != 0) {
-        Serial.println("Error initializing ESP-NOW");
+        //Serial.println("Error initializing ESP-NOW");
         return;
     }
 
@@ -502,8 +621,6 @@ void loop()
         sendTimer = millis();
     }
     */
-
-    
 
     controllerToESPWiFi();
     ESPWiFiTocontroller();
